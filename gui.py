@@ -48,14 +48,34 @@ class DownloaderApp(ctk.CTk):
             return str(Path.home() / "Downloads")
 
     def bg_check_ffmpeg(self):
-        """Checks if FFmpeg is available on PATH, or tries to import static_ffmpeg."""
-        # 1. Check if ffmpeg is on system PATH
+        """Checks if FFmpeg is available on PATH, in npm installer, or via static_ffmpeg."""
+        # 1. Check if npm-installed ffmpeg/ffprobe exist in AppData (direct and nested structures)
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            # Direct structure (npm install -g @ffmpeg-installer/win32-x64)
+            npm_ffmpeg_dir_1 = os.path.join(appdata, "npm", "node_modules", "@ffmpeg-installer", "win32-x64")
+            npm_ffprobe_dir_1 = os.path.join(appdata, "npm", "node_modules", "@ffprobe-installer", "win32-x64")
+            
+            # Nested structure (npm install -g @ffmpeg-installer/ffmpeg)
+            npm_ffmpeg_dir_2 = os.path.join(appdata, "npm", "node_modules", "@ffmpeg-installer", "ffmpeg", "node_modules", "@ffmpeg-installer", "win32-x64")
+            npm_ffprobe_dir_2 = os.path.join(appdata, "npm", "node_modules", "@ffprobe-installer", "ffprobe", "node_modules", "@ffprobe-installer", "win32-x64")
+
+            for path in [npm_ffmpeg_dir_1, npm_ffmpeg_dir_2]:
+                if os.path.exists(path):
+                    os.environ["PATH"] = path + os.pathsep + os.environ["PATH"]
+                    break
+            for path in [npm_ffprobe_dir_1, npm_ffprobe_dir_2]:
+                if os.path.exists(path):
+                    os.environ["PATH"] = path + os.pathsep + os.environ["PATH"]
+                    break
+
+        # 2. Check if ffmpeg is on system PATH (including the npm paths we just added)
         if shutil.which("ffmpeg") is not None:
             self.ffmpeg_available = True
-            self.after(0, self.update_ffmpeg_status, "FFmpeg: Detected (System)")
+            self.after(0, self.update_ffmpeg_status, "FFmpeg: Detected (Local Package)")
             return
 
-        # 2. Try static_ffmpeg
+        # 3. Try static_ffmpeg as final fallback
         try:
             import static_ffmpeg
             static_ffmpeg.add_paths()
@@ -66,7 +86,7 @@ class DownloaderApp(ctk.CTk):
         except Exception:
             pass
 
-        # 3. Fallback: No FFmpeg
+        # 4. Fallback: No FFmpeg
         self.ffmpeg_available = False
         self.after(0, self.update_ffmpeg_status, "FFmpeg: Missing (Max quality 720p, Audio saved as M4A)")
 
@@ -429,6 +449,9 @@ class DownloaderApp(ctk.CTk):
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True,
+            'concurrent_fragment_downloads': 5,  # Speed optimization: Download 5 fragments in parallel
+            'buffersize': 1024 * 1024,           # Speed optimization: Use a 1MB buffer size for disk writes
+            'http_chunk_size': 10485760,         # Speed optimization: Ask for 10MB chunks from YouTube
         }
 
         if download_type == "mp3":
