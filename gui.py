@@ -16,7 +16,7 @@ class DownloaderApp(ctk.CTk):
         super().__init__()
 
         # Configure window
-        self.title("StreamVault - YouTube Downloader")
+        self.title("Koinloader - YouTube Downloader")
         self.geometry("640x560")
         self.resizable(False, False)
         
@@ -180,7 +180,7 @@ class DownloaderApp(ctk.CTk):
         # Header Label
         self.header_label = ctk.CTkLabel(
             self, 
-            text="StreamVault", 
+            text="Koinloader", 
             text_color="#f1f5f9",
             font=ctk.CTkFont(family="Outfit", size=32, weight="bold")
         )
@@ -958,7 +958,7 @@ class DownloaderApp(ctk.CTk):
             'socket_timeout': 10,
             'retries': 5,
             'fragment_retries': 5,
-            'download_archive': os.path.join(self.downloads_dir, 'streamvault_archive.txt'), # Prevent duplicate downloads
+            'download_archive': os.path.join(self.downloads_dir, 'koinloader_archive.txt'), # Prevent duplicate downloads
             'http_headers': {
                 'Connection': 'keep-alive',
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',

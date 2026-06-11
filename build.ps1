@@ -1,14 +1,14 @@
 # build.ps1
-# Script to compile StreamVault into a standalone high-performance executable using Nuitka.
+# Script to compile Koinloader into a standalone high-performance executable using Nuitka.
 
-Write-Host "[StreamVault] Checking for Nuitka installation..." -ForegroundColor Cyan
+Write-Host "[Koinloader] Checking for Nuitka installation..." -ForegroundColor Cyan
 & .\venv\Scripts\python.exe -m pip show nuitka > $null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "[StreamVault] Nuitka not found in virtualenv. Installing Nuitka..." -ForegroundColor Yellow
+    Write-Host "[Koinloader] Nuitka not found in virtualenv. Installing Nuitka..." -ForegroundColor Yellow
     & .\venv\Scripts\python.exe -m pip install nuitka
 }
 
-Write-Host "[StreamVault] Compiling gui.py to single executable..." -ForegroundColor Cyan
+Write-Host "[Koinloader] Compiling gui.py to single executable..." -ForegroundColor Cyan
 & .\venv\Scripts\python.exe -m nuitka `
     --standalone `
     --onefile `
@@ -19,7 +19,7 @@ Write-Host "[StreamVault] Compiling gui.py to single executable..." -ForegroundC
     gui.py
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "[StreamVault] Compilation successful! Executable is located in dist/gui.exe" -ForegroundColor Green
+    Write-Host "[Koinloader] Compilation successful! Executable is located in dist/gui.exe" -ForegroundColor Green
 } else {
-    Write-Host "[StreamVault] Compilation failed. Please inspect build logs." -ForegroundColor Red
+    Write-Host "[Koinloader] Compilation failed. Please inspect build logs." -ForegroundColor Red
 }

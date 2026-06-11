@@ -1,6 +1,6 @@
-# StreamVault — YouTube Downloader
+# Koinloader — YouTube Downloader
 
-**StreamVault** is a custom, high-performance desktop YouTube downloader application written in Python. It features a stunning modern Dark-Slate interface built using CustomTkinter, backed by the scraping capabilities of `yt-dlp` and asynchronous media delivery pipelines.
+**Koinloader** is a custom, high-performance desktop YouTube downloader application written in Python. It features a stunning modern Dark-Slate interface built using CustomTkinter, backed by the scraping capabilities of `yt-dlp` and asynchronous media delivery pipelines.
 
 ---
 
@@ -20,7 +20,7 @@
     *   **Cancel**: Sets cancellation flags and raises custom `DownloadError` exceptions inside the progress hook to abort processes cleanly.
 
 ### Hardened Error Isolation
-*   **Playlist Isolation**: Wraps individual downloads in playlists inside independent context handlers. If a single video fails (due to region lock, private status, or deletion), StreamVault logs the error, increments the overall progress bar, and proceeds to the next entry.
+*   **Playlist Isolation**: Wraps individual downloads in playlists inside independent context handlers. If a single video fails (due to region lock, private status, or deletion), Koinloader logs the error, increments the overall progress bar, and proceeds to the next entry.
 *   **Comprehensive Diagnostics**: Compiles errors encountered during playlist runs and outputs a detailed diagnostic popup window at the end.
 *   **Reliable Formats Fallback**: Automatically requests `bestaudio[ext=m4a]/best` if FFmpeg is missing, ensuring output audio is playable natively on Windows without conversion errors.
 
@@ -52,17 +52,17 @@ These scripts will automatically create a Python virtual environment (`venv`), i
 ---
 
 ## Offline Portability & Accelerators
-To run StreamVault fully portable without modifying your system's environment variables:
+To run Koinloader fully portable without modifying your system's environment variables:
 1. Create a `bin` folder in the project root directory.
 2. Drop `ffmpeg.exe` and `ffprobe.exe` inside it.
 3. Drop `aria2c.exe` inside it.
 
-StreamVault will automatically discover these binaries on startup, update the status to `FFmpeg: Detected (Local ./bin)`, and enable parallel-connection downloading.
+Koinloader will automatically discover these binaries on startup, update the status to `FFmpeg: Detected (Local ./bin)`, and enable parallel-connection downloading.
 
 ---
 
 ## Standalone Native Compilation
-To package StreamVault into a standalone, single executable native binary for Windows (removing virtualenv dependencies and Tkinter startup lag):
+To package Koinloader into a standalone, single executable native binary for Windows (removing virtualenv dependencies and Tkinter startup lag):
 1. Open PowerShell in the root directory.
 2. Run the build script:
     ```powershell

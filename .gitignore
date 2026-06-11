@@ -16,4 +16,4 @@ dist/
 *.build/
 
 # Local streamvault database
-streamvault_archive.txt
+koinloader_archive.txt
