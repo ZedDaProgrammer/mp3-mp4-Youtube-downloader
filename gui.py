@@ -30,6 +30,9 @@ class DownloaderApp(ctk.CTk):
 
         # Check FFmpeg asynchronously to keep GUI loading instant
         self.status_label.configure(text="Checking system components...")
+        self.stats_frame.pack_forget()
+        self.progressbar.configure(mode="indeterminate")
+        self.progressbar.start()
         self.progress_frame.pack(fill="x", padx=40, pady=5)
         threading.Thread(target=self.bg_check_ffmpeg, daemon=True).start()
 
@@ -46,6 +49,32 @@ class DownloaderApp(ctk.CTk):
                 return winreg.QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}")[0]
         except Exception:
             return str(Path.home() / "Downloads")
+
+    def change_download_dir(self):
+        from tkinter import filedialog
+        selected_dir = filedialog.askdirectory(
+            parent=self,
+            title="Select Download Directory",
+            initialdir=self.downloads_dir
+        )
+        if selected_dir:
+            self.downloads_dir = selected_dir
+            display_path = selected_dir
+            if len(display_path) > 55:
+                display_path = display_path[:25] + "..." + display_path[-27:]
+            self.dir_label.configure(text=f"Save to: {display_path}")
+
+    def format_size(self, bytes_val):
+        if not bytes_val or bytes_val <= 0:
+            return "Unknown Size"
+        if bytes_val >= 1024 * 1024 * 1024:
+            return f"{bytes_val / (1024*1024*1024):.1f} GB"
+        elif bytes_val >= 1024 * 1024:
+            return f"{bytes_val / (1024*1024):.1f} MB"
+        elif bytes_val >= 1024:
+            return f"{bytes_val / 1024:.0f} KB"
+        else:
+            return f"{bytes_val} B"
 
     def bg_check_ffmpeg(self):
         """Checks if FFmpeg is available on PATH, in npm installer, or via static_ffmpeg."""
@@ -91,7 +120,10 @@ class DownloaderApp(ctk.CTk):
         self.after(0, self.update_ffmpeg_status, "FFmpeg: Missing (Max quality 720p, Audio saved as M4A)")
 
     def update_ffmpeg_status(self, message):
+        self.progressbar.stop()
+        self.progressbar.configure(mode="determinate")
         self.progress_frame.pack_forget()
+        self.stats_frame.pack(fill="x", padx=10, pady=5)
         self.ffmpeg_status_label.configure(text=message)
         if not self.ffmpeg_available:
             self.ffmpeg_status_label.configure(text_color="#f59e0b") # Warning color
@@ -252,14 +284,41 @@ class DownloaderApp(ctk.CTk):
         self.percent_label = ctk.CTkLabel(self.stats_frame, text="0%", font=ctk.CTkFont(weight="bold"))
         self.percent_label.pack(side="top")
 
-        # Directory footer
-        self.footer_label = ctk.CTkLabel(
-            self, 
-            text=f"Files will save directly to: {self.downloads_dir}", 
+        # Credits Label
+        self.credits_label = ctk.CTkLabel(
+            self,
+            text="Created by ZeD",
             text_color="#64748b",
-            font=ctk.CTkFont(size=11)
+            font=ctk.CTkFont(family="Outfit", size=10, weight="bold")
         )
-        self.footer_label.pack(side="bottom", pady=15)
+        self.credits_label.pack(side="bottom", pady=(5, 10))
+
+        # Directory selection frame
+        self.dir_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.dir_frame.pack(side="bottom", fill="x", padx=40, pady=(5, 5))
+        
+        display_path = self.downloads_dir
+        if len(display_path) > 55:
+            display_path = display_path[:25] + "..." + display_path[-27:]
+            
+        self.dir_label = ctk.CTkLabel(
+            self.dir_frame, 
+            text=f"Save to: {display_path}", 
+            text_color="#94a3b8",
+            font=ctk.CTkFont(size=12),
+            anchor="w"
+        )
+        self.dir_label.pack(side="left", fill="x", expand=True)
+        
+        self.dir_btn = ctk.CTkButton(
+            self.dir_frame,
+            text="Browse...",
+            width=80,
+            height=28,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=self.change_download_dir
+        )
+        self.dir_btn.pack(side="right", padx=(10, 0))
 
     # Threaded URL Analysis
     def start_analyze(self):
@@ -269,72 +328,246 @@ class DownloaderApp(ctk.CTk):
 
         self.analyze_btn.configure(state="disabled", text="Analyzing...")
         self.info_frame.pack_forget()
-        self.progress_frame.pack_forget()
+        
+        # Show progress frame for analysis
+        self.progress_frame.pack(fill="x", padx=40, pady=15)
+        self.stats_frame.pack_forget()
+        self.progressbar.configure(mode="indeterminate")
+        self.progressbar.set(0)
+        self.progressbar.start()
+        self.status_label.configure(text="Analyzing video link...")
 
         threading.Thread(target=self.bg_analyze, args=(url,), daemon=True).start()
 
     def bg_analyze(self, url):
-        # Enforce 'noplaylist': True to only check the specific video and prevent downloading playlists
+        # We start with flat extraction to quickly check if it is a playlist
         ydl_opts = {
-            'extract_flat': False,
+            'extract_flat': 'in_playlist',
             'skip_download': True,
-            'noplaylist': True,
+            'check_formats': 'cached',
+            'youtube_include_dash_manifest': False,
+            'youtube_include_hls_manifest': False,
+            'socket_timeout': 10,
+            'retries': 5,
         }
         
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 
-                # Check if it returned a playlist structure instead of a single video
+                # Check if it returned a playlist structure
                 if info.get('_type') == 'playlist':
-                    # Extract the first video if it parsed a playlist or default to error
                     entries = info.get('entries', [])
-                    if entries:
-                        info = entries[0]
-                    else:
-                        raise ValueError("No video entries found in this link.")
-
-                # Format durations
-                duration = info.get("duration", 0)
-                if duration:
-                    mins, secs = divmod(duration, 60)
-                    hours, mins = divmod(mins, 60)
-                    duration_str = f"{hours}:{mins:02d}:{secs:02d}" if hours > 0 else f"{mins}:{secs:02d}"
+                    if not entries:
+                        raise ValueError("No video entries found in this playlist.")
+                        
+                    playlist_urls = []
+                    for entry in entries:
+                        if entry:
+                            # entry can be a dict or a string URL
+                            e_url = entry.get('url') or entry.get('webpage_url')
+                            if not e_url and entry.get('id'):
+                                e_url = f"https://www.youtube.com/watch?v={entry.get('id')}"
+                            if e_url:
+                                playlist_urls.append(e_url)
+                                
+                    if not playlist_urls:
+                        raise ValueError("No valid video URLs found in this playlist.")
+                        
+                    duration_str = f"{len(playlist_urls)} videos"
+                    sorted_labels = ["1080p", "720p", "480p", "360p", "240p", "144p"]
+                    resolution_map = {
+                        "1080p": "1080",
+                        "720p": "720",
+                        "480p": "480",
+                        "360p": "360",
+                        "240p": "240",
+                        "144p": "144"
+                    }
+                    
+                    self.video_info = {
+                        "url": url,
+                        "title": f"Playlist: {info.get('title', 'Unknown Playlist')}",
+                        "uploader": info.get("uploader") or info.get("publisher") or "Various Creators",
+                        "duration": duration_str,
+                        "resolutions": sorted_labels,
+                        "resolution_map": resolution_map,
+                        "is_playlist": True,
+                        "playlist_entries": playlist_urls
+                    }
                 else:
-                    duration_str = "Unknown"
-
-                # Extract resolutions
-                formats = info.get("formats", [])
-                heights = set()
-                for f in formats:
-                    h = f.get("height")
-                    # If ffmpeg is missing, only include combined formats (both audio and video codecs are not none)
-                    if not self.ffmpeg_available:
-                        if h and f.get("vcodec") != "none" and f.get("acodec") != "none" and h >= 144:
-                            heights.add(h)
+                    # Single video: re-extract with full metadata to retrieve format details
+                    ydl_opts_full = {
+                        'extract_flat': False,
+                        'skip_download': True,
+                        'noplaylist': True,
+                        'check_formats': 'cached',
+                        'youtube_include_dash_manifest': False,
+                        'youtube_include_hls_manifest': False,
+                        'socket_timeout': 10,
+                        'retries': 5,
+                    }
+                    with yt_dlp.YoutubeDL(ydl_opts_full) as ydl_full:
+                        info = ydl_full.extract_info(url, download=False)
+                        
+                    # Format durations and get seconds for size calculation
+                    duration_secs = info.get("duration", 0)
+                    if duration_secs:
+                        mins, secs = divmod(duration_secs, 60)
+                        hours, mins = divmod(mins, 60)
+                        duration_str = f"{hours}:{mins:02d}:{secs:02d}" if hours > 0 else f"{mins}:{secs:02d}"
                     else:
-                        if h and f.get("vcodec") != "none" and h >= 144:
-                            heights.add(h)
-                
-                sorted_res = sorted(list(heights), reverse=True)
-                res_options = [f"{h}p" for h in sorted_res] if sorted_res else ["720p", "360p"]
+                        duration_str = "Unknown"
 
-                self.video_info = {
-                    "url": url,
-                    "title": info.get("title", "Unknown Title"),
-                    "uploader": info.get("uploader", "Unknown Channel"),
-                    "duration": duration_str,
-                    "resolutions": res_options
-                }
+                    # Get formats
+                    formats = info.get("formats", [])
+                    
+                    # 1. First, find best audio-only stream size to add to video size estimations
+                    max_audio_filesize = 0
+                    max_audio_bitrate = 128
+                    for f in formats:
+                        vcodec = f.get("vcodec")
+                        acodec = f.get("acodec")
+                        if vcodec == "none" and acodec and acodec != "none":
+                            abr = f.get("abr") or f.get("tbr") or 128
+                            fs = f.get("filesize") or f.get("filesize_approx")
+                            if not fs and abr and duration_secs:
+                                fs = int(abr * 1000 * duration_secs / 8)
+                            if fs and fs > max_audio_filesize:
+                                max_audio_filesize = fs
+                                max_audio_bitrate = abr
 
+                    # 2. Extract video resolutions and map them with size estimations
+                    resolution_map = {}
+                    for f in formats:
+                        w = f.get("width")
+                        h = f.get("height")
+                        vcodec = f.get("vcodec")
+                        acodec = f.get("acodec")
+                        fps = f.get("fps")
+                        fmt_id = f.get("format_id")
+                        
+                        # Ensure it's a valid video format and has a format ID
+                        if not h or not fmt_id:
+                            continue
+                        if not vcodec or vcodec == "none":
+                            continue
+                            
+                        # If ffmpeg is missing, only include combined formats
+                        if not self.ffmpeg_available:
+                            if not acodec or acodec == "none":
+                                continue
+                                
+                        # Calculate resolution label
+                        if w and h:
+                            res_label = min(w, h)
+                        else:
+                            res_label = h
+                            
+                        # Ignore extremely low resolutions under 144
+                        if res_label < 144:
+                            continue
+                            
+                        # Map to nearest standard resolution
+                        standards = [144, 240, 360, 480, 720, 1080, 1440, 2160, 4320]
+                        closest_std = min(standards, key=lambda s: abs(s - res_label))
+                        
+                        fps_suffix = "60" if fps and fps >= 50 else ""
+                        base_label = f"{closest_std}p{fps_suffix}"
+                        
+                        # Estimate total size of this video format
+                        filesize = f.get("filesize") or f.get("filesize_approx")
+                        vbr = f.get("vbr") or f.get("tbr")
+                        if not filesize and vbr and duration_secs:
+                            filesize = int(vbr * 1000 * duration_secs / 8)
+                            
+                        # Add max audio size if adaptive video (separate streams)
+                        if filesize and self.ffmpeg_available and (not acodec or acodec == "none"):
+                            filesize += max_audio_filesize
+                            
+                        size_text = self.format_size(filesize)
+                        label_str = f"{base_label} (~{size_text})"
+                        
+                        resolution_map[label_str] = fmt_id
+                    
+                    # 3. Extract audio bitrates and map them with size annotations
+                    audio_map = {}
+                    for f in formats:
+                        vcodec = f.get("vcodec")
+                        acodec = f.get("acodec")
+                        fmt_id = f.get("format_id")
+                        
+                        # We only want native audio-only formats
+                        if vcodec != "none" or not acodec or acodec == "none" or not fmt_id:
+                            continue
+                            
+                        abr = f.get("abr") or f.get("tbr")
+                        if not abr:
+                            continue
+                            
+                        filesize = f.get("filesize") or f.get("filesize_approx")
+                        if not filesize and duration_secs:
+                            filesize = int(abr * 1000 * duration_secs / 8)
+                            
+                        abr_int = int(abr)
+                        size_text = self.format_size(filesize)
+                        label_str = f"{abr_int} kbps (Native, ~{size_text})"
+                        
+                        audio_map[label_str] = (fmt_id, abr_int)
+
+                    # Sort video keys
+                    def label_sort_key(label):
+                        parts = label.split()[0]
+                        height_str = parts.replace("p60", "").replace("p", "")
+                        try:
+                            height = int(height_str)
+                        except ValueError:
+                            height = 0
+                        has_60 = 1 if "60" in parts else 0
+                        return (height, has_60)
+                        
+                    sorted_labels = sorted(resolution_map.keys(), key=label_sort_key, reverse=True)
+                    
+                    if not sorted_labels:
+                        sorted_labels = ["720p (~15 MB)", "360p (~5 MB)"]
+                        resolution_map = {sorted_labels[0]: "best", sorted_labels[1]: "best"}
+                        
+                    # Sort audio labels descending by bitrate
+                    def audio_sort_key(label):
+                        try:
+                            return int(label.split()[0])
+                        except ValueError:
+                            return 0
+                            
+                    sorted_audio_labels = sorted(audio_map.keys(), key=audio_sort_key, reverse=True)
+
+                    self.video_info = {
+                        "url": url,
+                        "title": info.get("title", "Unknown Title"),
+                        "uploader": info.get("uploader", "Unknown Channel"),
+                        "duration": duration_str,
+                        "resolutions": sorted_labels,
+                        "resolution_map": resolution_map,
+                        "audio_resolutions": sorted_audio_labels,
+                        "audio_map": audio_map,
+                        "is_playlist": False
+                    }
+                    
                 # Update UI inside Tkinter safe block
                 self.after(0, self.update_ui_after_analysis)
-
         except Exception as e:
             self.after(0, lambda: self.show_error(f"Invalid Video or Verification Failed:\n{str(e)}"))
 
     def update_ui_after_analysis(self):
         self.analyze_btn.configure(state="normal", text="Analyze")
+        
+        # Stop and hide progress frame
+        self.progressbar.stop()
+        self.progressbar.configure(mode="determinate")
+        self.progress_frame.pack_forget()
+        
+        # Restore stats frame packaging for downloads
+        self.stats_frame.pack(fill="x", padx=10, pady=5)
         
         # Populate widgets
         self.title_label.configure(text=self.video_info["title"])
@@ -345,11 +578,29 @@ class DownloaderApp(ctk.CTk):
         self.mp4_quality_menu.configure(values=self.video_info["resolutions"])
         self.mp4_quality_menu.set(self.video_info["resolutions"][0])
 
+        # Populate audio bitrates dynamically if available
+        if "audio_resolutions" in self.video_info and self.video_info["audio_resolutions"] and self.ffmpeg_available:
+            self.mp3_quality_menu.configure(values=self.video_info["audio_resolutions"])
+            self.mp3_quality_menu.set(self.video_info["audio_resolutions"][0])
+        else:
+            if not self.ffmpeg_available:
+                self.mp3_quality_menu.configure(values=["Original / Best Quality"])
+                self.mp3_quality_menu.set("Original / Best Quality")
+            else:
+                self.mp3_quality_menu.configure(values=["320 kbps (High)", "256 kbps", "192 kbps (Medium)", "128 kbps (Low)"])
+                self.mp3_quality_menu.set("320 kbps (High)")
+
         # Show info frame
         self.info_frame.pack(fill="x", padx=40, pady=10)
 
     def show_error(self, message):
         self.analyze_btn.configure(state="normal", text="Analyze")
+        
+        # Stop and hide progress frame on error
+        self.progressbar.stop()
+        self.progressbar.configure(mode="determinate")
+        self.progress_frame.pack_forget()
+        self.stats_frame.pack(fill="x", padx=10, pady=5)
         
         # Show a temporary popup message box
         err_win = ctk.CTkToplevel(self)
@@ -370,13 +621,16 @@ class DownloaderApp(ctk.CTk):
 
         url = self.video_info["url"]
         
-        # Disable analyze and download inputs
+        # Disable analyze button during download
         self.analyze_btn.configure(state="disabled")
-        self.mp4_download_btn.configure(state="disabled")
-        self.mp3_download_btn.configure(state="disabled")
+        
+        # Hide Info Frame to make room for progress bar
+        self.info_frame.pack_forget()
 
         # Show Progress Section
         self.progress_frame.pack(fill="x", padx=40, pady=15)
+        self.stats_frame.pack(fill="x", padx=10, pady=5)
+        self.progressbar.configure(mode="determinate")
         self.progressbar.set(0)
         self.percent_label.configure(text="0%")
         self.speed_label.configure(text="Speed: 0 KB/s")
@@ -397,12 +651,19 @@ class DownloaderApp(ctk.CTk):
         if download_type == "mp3":
             if self.ffmpeg_available:
                 raw_quality = self.mp3_quality_menu.get()
-                quality = raw_quality.split()[0]  # e.g., "320"
+                if self.video_info and "audio_map" in self.video_info and raw_quality in self.video_info["audio_map"]:
+                    fmt_id, abr_int = self.video_info["audio_map"][raw_quality]
+                    quality = f"{fmt_id}:{abr_int}"
+                else:
+                    quality = raw_quality.split()[0]  # e.g., "320"
             else:
                 quality = "best"
         else:
             raw_quality = self.mp4_quality_menu.get()
-            quality = raw_quality.replace("p", "")
+            if self.video_info and "resolution_map" in self.video_info:
+                quality = self.video_info["resolution_map"].get(raw_quality, raw_quality.replace("p", ""))
+            else:
+                quality = raw_quality.replace("p", "")
 
         threading.Thread(
             target=self.bg_download, 
@@ -411,11 +672,38 @@ class DownloaderApp(ctk.CTk):
         ).start()
 
     def bg_download(self, url, download_type, quality):
+        is_playlist = self.video_info.get("is_playlist", False) if self.video_info else False
+        playlist_entries = self.video_info.get("playlist_entries", []) if self.video_info else []
+        total_videos = len(playlist_entries) if is_playlist else 1
+        
+        current_video_idx = 0
+        current_title = "Initializing..."
+
         def hook(d):
+            nonlocal current_video_idx, current_title
+            
+            if d.get('info_dict'):
+                current_title = d['info_dict'].get('title', 'Unknown Title')
+                
             if d['status'] == 'downloading':
                 total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
                 downloaded = d.get('downloaded_bytes', 0)
-                percent = (downloaded / total * 100) if total > 0 else 0
+                if total > 0:
+                    video_percent = (downloaded / total * 100.0)
+                elif d.get('fragment_count'):
+                    frag_index = d.get('fragment_index', 0)
+                    frag_count = d.get('fragment_count', 1)
+                    video_percent = (frag_index / frag_count * 100.0)
+                else:
+                    video_percent = 0.0
+                
+                # Overall progress calculation
+                if is_playlist:
+                    percent = (current_video_idx / total_videos * 100.0) + (video_percent / total_videos)
+                    status_text = f"Downloading video {current_video_idx + 1} of {total_videos}...\n({current_title})"
+                else:
+                    percent = video_percent
+                    status_text = f"Downloading: {current_title}"
                 
                 speed = d.get('speed')
                 eta = d.get('eta')
@@ -433,57 +721,170 @@ class DownloaderApp(ctk.CTk):
                     "status": "downloading",
                     "progress": percent,
                     "speed": speed_str,
-                    "eta": eta_str
+                    "eta": eta_str,
+                    "message": status_text
                 })
             elif d['status'] == 'finished':
+                if is_playlist:
+                    percent = ((current_video_idx + 1) / total_videos * 100.0)
+                    status_text = f"Finished downloading video {current_video_idx + 1} of {total_videos}..."
+                else:
+                    percent = 100.0
+                    status_text = "Finalizing file (converting or merging)..."
+                    
                 self.active_download_job.update({
                     "status": "processing",
-                    "progress": 100.0,
-                    "message": "Finalizing file (converting or merging)..."
+                    "progress": percent,
+                    "message": status_text
                 })
 
-        # ydl_opts enforces single video parsing with 'noplaylist': True
+        # Base configuration
         ydl_opts = {
             'progress_hooks': [hook],
             'outtmpl': os.path.join(self.downloads_dir, '%(title)s.%(ext)s'),
             'quiet': True,
             'no_warnings': True,
-            'noplaylist': True,
-            'concurrent_fragment_downloads': 5,  # Speed optimization: Download 5 fragments in parallel
-            'buffersize': 1024 * 1024,           # Speed optimization: Use a 1MB buffer size for disk writes
-            'http_chunk_size': 10485760,         # Speed optimization: Ask for 10MB chunks from YouTube
+            'nocheckcertificate': True,
+            'youtube_include_dash_manifest': False,
+            'youtube_include_hls_manifest': False,
+            'concurrent_fragment_downloads': 10,  # Speed optimization: 10 parallel fragments
+            'buffersize': 1024 * 1024,
+            'http_chunk_size': 10485760,
+            # Socket & anti-throttling tuning
+            'socket_timeout': 10,
+            'retries': 5,
+            'fragment_retries': 5,
+            'download_archive': os.path.join(self.downloads_dir, 'streamvault_archive.txt'), # Prevent duplicate downloads
+            'http_headers': {
+                'Connection': 'keep-alive',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+                'Sec-Ch-Ua-Mobile': '?0',
+                'Sec-Ch-Ua-Platform': '"Windows"',
+            }
         }
 
+        # Enable external downloader aria2c if it's available on system path!
+        if shutil.which("aria2c") is not None:
+            ydl_opts.update({
+                'external_downloader': 'aria2c',
+                'external_downloader_args': [
+                    '--min-split-size=1M',
+                    '--max-connection-per-server=16',
+                    '--split=16',
+                    '--max-concurrent-downloads=5',
+                    '--file-allocation=none'
+                ]
+            })
+
+        has_atomicparsley = (shutil.which("AtomicParsley") is not None or 
+                             shutil.which("atomicparsley") is not None)
+
+        # Format and post-processor setups
         if download_type == "mp3":
+            if ":" in quality:
+                fmt_id, target_abr = quality.split(":")
+            else:
+                fmt_id = 'bestaudio/best'
+                target_abr = quality  # e.g., "320"
+                
             if self.ffmpeg_available:
                 ydl_opts.update({
-                    'format': 'bestaudio/best',
-                    'postprocessors': [{
-                        'key': 'FFmpegExtractAudio',
-                        'preferredcodec': 'mp3',
-                        'preferredquality': quality,
-                    }],
+                    'format': fmt_id,
+                    'writethumbnail': True,
+                    'postprocessors': [
+                        {
+                            'key': 'FFmpegExtractAudio',
+                            'preferredcodec': 'mp3',
+                            'preferredquality': target_abr,
+                        },
+                        {
+                            'key': 'FFmpegThumbnailsConvertor',
+                            'format': 'jpg',
+                        },
+                        {
+                            'key': 'FFmpegMetadata',
+                            'add_metadata': True,
+                        },
+                        {
+                            'key': 'FFmpegEmbedThumbnail',
+                        }
+                    ],
                 })
             else:
-                # Force fallback format to best single-audio stream (saves as M4A or WebM)
                 ydl_opts.update({
-                    'format': 'bestaudio/best',
+                    'format': fmt_id,
                 })
         else:  # mp4
+            if is_playlist:
+                if self.ffmpeg_available:
+                    format_str = f'bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={quality}]+bestaudio/best'
+                else:
+                    format_str = f'best[height<={quality}][ext=mp4]/best[height<={quality}]/best'
+            else:
+                if self.ffmpeg_available:
+                    if quality == "best":
+                        format_str = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best'
+                    else:
+                        format_str = f'{quality}+bestaudio[ext=m4a]/{quality}+bestaudio/best'
+                else:
+                    if quality == "best":
+                        format_str = 'best[ext=mp4]/best'
+                    else:
+                        format_str = f'{quality}/best'
+                        
+            ydl_opts.update({
+                'format': format_str,
+            })
+            
             if self.ffmpeg_available:
                 ydl_opts.update({
-                    'format': f'bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={quality}]+bestaudio/best',
                     'merge_output_format': 'mp4',
                 })
-            else:
-                # Force single combined format (video + audio in one file) to bypass FFmpeg requirement
-                ydl_opts.update({
-                    'format': f'best[height<={quality}][ext=mp4]/best[height<={quality}]/best',
-                })
+                # Embedding thumbnails in MP4 containers requires AtomicParsley
+                if has_atomicparsley:
+                    ydl_opts.update({
+                        'writethumbnail': True,
+                        'postprocessors': [
+                            {
+                                'key': 'FFmpegThumbnailsConvertor',
+                                'format': 'jpg',
+                            },
+                            {
+                                'key': 'FFmpegMetadata',
+                                'add_metadata': True,
+                            },
+                            {
+                                'key': 'FFmpegEmbedThumbnail',
+                            }
+                        ]
+                    })
+                else:
+                    ydl_opts.update({
+                        'postprocessors': [
+                            {
+                                'key': 'FFmpegMetadata',
+                                'add_metadata': True,
+                            }
+                        ]
+                    })
 
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
+            if is_playlist:
+                for idx, entry_url in enumerate(playlist_entries):
+                    current_video_idx = idx
+                    # Set status update before parsing/downloading this entry
+                    self.active_download_job.update({
+                        "message": f"Downloading video {idx + 1} of {total_videos}..."
+                    })
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        ydl.download([entry_url])
+            else:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+            
             self.active_download_job["done"] = True
             self.active_download_job["status"] = "completed"
         except Exception as e:
@@ -498,18 +899,19 @@ class DownloaderApp(ctk.CTk):
 
         if self.active_download_job:
             job = self.active_download_job
+            is_playlist = self.video_info.get("is_playlist", False) if self.video_info else False
             
             if job["status"] == "downloading":
-                self.status_label.configure(text="Downloading audio/video streams...")
+                self.status_label.configure(text=job.get("message", "Downloading audio/video streams..."))
                 self.progressbar.set(job["progress"] / 100.0)
                 self.percent_label.configure(text=f"{job['progress']:.1f}%")
                 self.speed_label.configure(text=f"Speed: {job['speed']}")
                 self.eta_label.configure(text=f"ETA: {job['eta']}")
                 
             elif job["status"] == "processing":
-                self.status_label.configure(text="Finalizing formats (Muxing / Encoding)...")
-                self.progressbar.set(1.0)
-                self.percent_label.configure(text="100%")
+                self.status_label.configure(text=job.get("message", "Finalizing formats (Muxing / Encoding)..."))
+                self.progressbar.set(job["progress"] / 100.0 if is_playlist else 1.0)
+                self.percent_label.configure(text=f"{job['progress']:.1f}%" if is_playlist else "100%")
                 self.speed_label.configure(text="Speed: ---")
                 self.eta_label.configure(text="ETA: ---")
 
@@ -519,6 +921,10 @@ class DownloaderApp(ctk.CTk):
                 self.percent_label.configure(text="100%")
                 self.speed_label.configure(text="Speed: ---")
                 self.eta_label.configure(text="ETA: ---")
+                
+                # Hide progress bar and restore info frame
+                self.progress_frame.pack_forget()
+                self.info_frame.pack(fill="x", padx=40, pady=10)
                 
                 # Re-enable inputs
                 self.analyze_btn.configure(state="normal")
@@ -534,6 +940,10 @@ class DownloaderApp(ctk.CTk):
             elif job["status"] == "failed":
                 self.status_label.configure(text="Download failed.")
                 self.progressbar.set(0)
+                
+                # Hide progress bar and restore info frame
+                self.progress_frame.pack_forget()
+                self.info_frame.pack(fill="x", padx=40, pady=10)
                 
                 # Re-enable inputs
                 self.analyze_btn.configure(state="normal")
