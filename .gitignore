@@ -1,0 +1,19 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local Virtual Environment
+venv/
+ENV/
+
+# Testing Cache
+.pytest_cache/
+
+# Compiler & Packaging Builds
+build/
+dist/
+*.build/
+
+# Local streamvault database
+streamvault_archive.txt
